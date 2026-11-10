@@ -1,0 +1,4 @@
+whisper-cli (Mac, universal: Apple Silicon + Intel), de https://github.com/ggml-org/whisper.cpp (licencia MIT, ver LICENSE-whisper.cpp.txt).
+Compilado con cmake: -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_METAL_EMBED_LIBRARY=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+(arm64 con Metal; x86_64 con -DGGML_METAL=OFF -DGGML_NATIVE=OFF), unido con lipo y firmado ad-hoc. No depende de Homebrew.
+Commit: 727d3e7666485e12450746b523bfb4e7f057cc5e

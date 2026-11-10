@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AlchemyCut</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main>
+    <header class="top">
+      <h1>AlchemyCut <small id="verLabel" class="ver" title="Versión instalada"></small> <button id="btnCheckUpd" class="miniico" title="Buscar actualizaciones">↻</button></h1>
+      <nav class="steps">
+        <button class="step active" id="modeCuts" data-mode="cuts"><span class="ico">✂</span> Cortar</button>
+        <button class="step" id="modeSubs" data-mode="subs"><span class="ico">💬</span> Subtítulos</button>
+      </nav>
+    </header>
+
+    <!-- aviso de versión nueva: se muestra solo si hay una -->
+    <div class="card update" id="updateCard" hidden>
+      <strong id="updTitle">Hay una versión nueva</strong>
+      <p class="hint" id="updMsg"></p>
+      <button id="btnUpdate" class="primary">Actualizar ahora</button>
+      <progress id="updBar" max="100" value="0" hidden></progress>
+    </div>
+
+    <div class="card">
+      <p class="hint" id="clipInfo">Seleccioná en la secuencia el clip con la voz y tocá “Leer selección”.</p>
+      <button id="btnRead" class="secondary">Leer selección</button>
+    </div>
+
+    <!-- componentes que faltan (ffmpeg, Whisper, modelo): se muestra solo si hace falta -->
+    <div class="card" id="setupCard" hidden>
+      <strong id="setupTitle">Falta instalar componentes</strong>
+      <p class="hint" id="setupMsg"></p>
+      <button id="btnSetup">Instalar ahora</button>
+      <progress id="setupBar" max="100" value="0" hidden></progress>
+      <p class="hint" id="setupProg"></p>
+    </div>
+
+    <!-- ===== MODO CORTES ===== -->
+    <section id="cutsMode" class="mode">
+      <div id="cutsSetup">
+        <div class="fmt">Método de corte
+          <input type="hidden" id="cutMethod" value="fast">
+          <div class="seg" id="cutSeg">
+            <button type="button" data-v="fast">Rápido<small>por volumen</small></button>
+            <button type="button" data-v="precise">Preciso<small>por palabras y guion</small></button>
+          </div>
+          <p class="hint" id="methodHint"></p>
+        </div>
+
+        <fieldset id="preciseBox" hidden>
+          <legend>Cuánto dura cada pausa</legend>
+          <p class="hint">Cada pausa se acorta a lo que indiques, según cómo termina la frase. Nunca se corta adentro de una palabra.</p>
+          <label>Pausa después de un punto <span id="keepEndVal">0.30</span> s
+            <input type="range" id="keepEnd" min="0.05" max="1" step="0.05" value="0.3"></label>
+          <label>Pausa después de una coma <span id="keepCommaVal">0.15</span> s
+            <input type="range" id="keepComma" min="0" max="0.6" step="0.01" value="0.15"></label>
+          <label>Pausa entre palabras <span id="keepWordVal">0.06</span> s
+            <input type="range" id="keepWord" min="0" max="0.3" step="0.01" value="0.06"></label>
+          <label>Acortar solo las pausas de más de <span id="minGapVal">0.30</span> s
+            <input type="range" id="minGap" min="0.1" max="1.5" step="0.05" value="0.3"></label>
+          <label class="row"><input type="checkbox" id="useTakes"> Quedarme con la mejor toma de cada frase (con el guion)</label>
+          <div id="takeRow">
+            <label>Qué tan parecido al guion tiene que ser <span id="takeMinVal">50</span> %
+              <input type="range" id="takeMin" min="20" max="90" step="5" value="50"></label>
+            <label class="row"><input type="checkbox" id="cutOffScript" checked> Sacar lo que no está en el guion (“a ver”, “listo”, tomas cortadas)</label>
+            <p class="hint">Si una frase se dijo con otras palabras, <b>no se saca sola</b>: queda en la lista sin marcar para que decidas vos.</p>
+          </div>
+          <div id="scriptBoxCuts"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Silencios</legend>
+          <label class="row"><input type="checkbox" id="autoThresh" checked> Detectar el silencio automáticamente (recomendado)</label>
+          <label id="thrRow">Volumen que cuenta como silencio <span id="dbVal">-35</span> dB
+            <input type="range" id="noiseDb" min="-60" max="-15" value="-35"></label>
+          <label id="minSilRow">Cortar silencios de más de <span id="minVal">0.4</span> s
+            <input type="range" id="minSilence" min="0.1" max="2" step="0.1" value="0.4"></label>
+          <label id="padRow">Respiro antes y después de cada corte <span id="padVal">0.10</span> s
+            <input type="range" id="pad" min="0" max="0.4" step="0.01" value="0.1"></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>También quitar</legend>
+          <label class="row"><input type="checkbox" id="quietVoices"> Voces bajas de fondo (indicaciones fuera de cámara)</label>
+          <div id="quietRow">
+            <label>Quitar lo que esté por debajo de <span id="quietVal">-20</span> dB
+              <input type="range" id="quietLevel" min="-60" max="-6" value="-20"></label>
+            <label>Tu voz marca en Premiere (pico) <span class="hint">opcional</span>
+              <input type="number" id="premierePeak" placeholder="ej. -6" min="-40" max="0" step="1"></label>
+            <label>Tramo bajo mínimo <span id="quietMinVal">1.0</span> s
+              <input type="range" id="quietMin" min="0.3" max="4" step="0.1" value="1"></label>
+            <p class="hint">Poné un valor entre tus voces bajas (por ejemplo -33) y tu voz principal (por ejemplo -6): -20 va bien para empezar. Los números son los del medidor de audio de Premiere; si tu clip tiene ganancia o efectos, escribí arriba cuánto marca tu voz para que coincida. No transcribe.</p>
+          </div>
+          <label class="row"><input type="checkbox" id="fillers"> Muletillas (eh, um, o sea…)</label>
+          <label class="row"><input type="checkbox" id="repeats"> Tomas repetidas (queda la última)</label>
+          <div id="repeatRow">
+            <label>Mínimo de palabras repetidas <span id="repWordsVal">4</span>
+              <input type="range" id="repeatWords" min="3" max="8" value="4"></label>
+            <label>Máximo entre tomas <span id="repGapVal">12</span> s
+              <input type="range" id="repeatGap" min="3" max="40" value="12"></label>
+          </div>
+        </fieldset>
+
+        <div id="transcBoxCuts"></div>
+        <button id="btnAnalyze" class="primary">Buscar cortes</button>
+      </div>
+
+      <div id="cutsResult" hidden>
+        <button id="btnBackCuts" class="secondary">← Volver a los ajustes</button>
+        <p id="summary"></p>
+        <p class="hint" id="cutsHint">Tildá los cortes que querés. “Ir” lleva el cursor de Premiere a ese punto para escucharlo.</p>
+        <ul id="cuts"></ul>
+        <button id="btnApply" class="primary">Aplicar los cortes marcados</button>
+        <p class="hint">Los subtítulos se hacen aparte: cuando termines de cortar, pasá a “Subtítulos”.</p>
+      </div>
+    </section>
+
+    <!-- ===== MODO SUBTÍTULOS ===== -->
+    <section id="subsMode" class="mode" hidden>
+      <ol id="subSteps" class="substeps">
+        <li data-s="1"><span>1</span> Elegir y transcribir</li>
+        <li data-s="2"><span>2</span> Editar</li>
+        <li data-s="3"><span>3</span> Agregar</li>
+      </ol>
+      <div id="subsSetup">
+        <h3 class="stepttl"><span class="num">1</span> Elegí qué transcribir</h3>
+        <label>Qué transcribir
+          <select id="subScope">
+            <option value="selected">Los clips que tengo seleccionados</option>
+            <option value="sequence">Toda la secuencia (pista de audio)</option>
+            <option value="inout">Solo entre las marcas de entrada y salida</option>
+          </select></label>
+        <label id="audioTrackRow">Pista de audio
+          <select id="audioTrack"><option value="0">Automática (la primera con clips)</option></select></label>
+        <p class="hint" id="scopeHint"></p>
+        <div id="transcBoxSubs"></div>
+        <div id="scriptHostSubs"><div id="scriptBox" class="scriptbox">
+          <div class="scripthead">
+            <span><span class="num">3</span> <b>Guion</b> <span class="hint">(opcional, mejora los textos)</span></span>
+            <span id="scriptBadge" class="badge" hidden></span>
+          </div>
+          <textarea id="scriptText" rows="3" spellcheck="false" placeholder="Pegá acá el guion de lo que se dice, o cargá un archivo .txt"></textarea>
+          <div class="row2 gap">
+            <button id="btnScriptFile" class="secondary">Cargar .txt</button>
+            <button id="btnScriptClear" class="secondary" hidden>Quitar guion</button>
+            <input type="file" id="scriptFile" accept=".txt,text/plain" hidden>
+          </div>
+          <label class="row"><input type="checkbox" id="scriptFix" checked> Corregir los textos con el guion</label>
+          <p class="hint">Pegá solo lo que se dice. Lo que no está en el guion queda como se dijo. Las indicaciones [entre corchetes] y los títulos con “:” se ignoran.</p>
+        </div></div>
+        <button id="btnTranscribe" class="primary">Transcribir y editar</button>
+        <button id="btnToEditor" class="secondary" hidden>Volver a los subtítulos que ya transcribí →</button>
+        <div class="fmt">¿Ya tenés subtítulos en la secuencia?
+          <button id="btnLoadSeq" class="secondary">✎ Editar los que seleccioné en la secuencia</button>
+          <p class="hint">Seleccioná sus clips (se llaman “ac_…”) y tocá el botón: se cargan para cambiarles color, tamaño, texto o posición. Solo se reemplazan esos.</p>
+          <div class="row2 gap">
+            <button id="btnRemSel" class="secondary danger">Borrar de la secuencia los que seleccioné</button>
+            <button id="btnRemAll" class="secondary danger">Borrar de la secuencia todos los de AlchemyCut</button>
+          </div>
+        </div>
+      </div>
+
+      <fieldset id="transcFs">
+        <legend><span class="num">2</span> Cómo transcribir</legend>
+        <label>Idioma
+          <select id="language">
+            <option value="es">Español</option>
+            <option value="en">English</option>
+            <option value="pt">Português</option>
+            <option value="auto">Detectar</option>
+          </select></label>
+        <label>Transcribir con
+          <select id="provider">
+            <option value="local">Whisper local (gratis, sin internet) — recomendado</option>
+            <option value="openai">OpenAI Whisper</option>
+            <option value="elevenlabs">ElevenLabs Scribe (mejor con muletillas)</option>
+          </select></label>
+        <label id="modelRow">Calidad de Whisper
+          <select id="model">
+            <option value="large-v3-turbo-q5_0">Alta (la más precisa)</option>
+            <option value="small">Media (más liviana y rápida)</option>
+          </select></label>
+        <label id="keyRow">API key
+          <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off"></label>
+      </fieldset>
+
+      <div id="subsEditor" hidden>
+        <button id="btnBackSubs" class="secondary">← Volver al inicio (no se pierde nada)</button>
+        <div class="cols">
+          <div class="col-left">
+            <h2>Vista previa <span class="hint" id="capCount"></span></h2>
+            <div class="preview"><canvas id="previewCanvas" title="Clic para reposicionar"></canvas></div>
+            <div class="row2">
+              <button id="btnPlay" class="secondary">▶ Ver animación</button>
+              <span class="hint">Clic en la imagen: mueve el texto</span>
+            </div>
+          </div>
+
+          <div class="col-right">
+            <nav class="tabs small" id="optTabs">
+              <button class="tab active" data-pane="optLines"><span class="ico">☰</span> Líneas</button>
+              <button class="tab" data-pane="optStyle"><span class="ico">🎨</span> Estilo y animación</button>
+              <button class="tab" data-pane="optOut"><span class="ico">⬇</span> Agregar</button>
+            </nav>
+
+            <div id="optLines" class="pane">
+              <p class="hint">Editá el texto de cada subtítulo. <b>Unir</b> lo junta con el siguiente, <b>Dividir</b> lo corta donde está el cursor, <b>◂ ▸</b> lo adelanta o atrasa, <b>🗑</b> lo borra. Tildá los que quieras cambiar o agregar por separado.</p>
+              <div id="editTools">
+                <div class="row2 gap">
+                  <button id="selAll" class="secondary">Marcar todos</button>
+                  <button id="selNone" class="secondary">Ninguno</button>
+                  <button id="btnDelSel" class="secondary danger">🗑 Borrar los marcados</button>
+                  <span class="hint" id="selCount"></span>
+                </div>
+              </div>
+              <div id="capList"></div>
+              <div class="row2 gap">
+                <button id="btnFixScript" class="secondary">Corregir con el guion</button>
+                <button id="btnUnfixScript" class="secondary" disabled>Quitar la corrección</button>
+              </div>
+              <p class="hint" id="fixHint">El guion se pega en el inicio (“Volver al inicio”).</p>
+
+              <fieldset class="lineopts">
+                <legend>Cómo se parten los subtítulos</legend>
+              <label>Caracteres por línea <span id="charsVal">24</span>
+                <input type="range" id="maxChars" min="12" max="60" value="24"></label>
+              <label>Palabras por línea <span id="wordsVal">sin límite</span>
+                <input type="range" id="maxWords" min="0" max="10" value="0"></label>
+              <label>Líneas por subtítulo
+                <select id="maxLines"><option value="1">1 línea</option><option value="2">2 líneas</option></select></label>
+              <label>Adelantar o atrasar todos los subtítulos <span id="offsetVal">0 ms</span>
+                <input type="range" id="offset" min="-300" max="500" step="10" value="0"></label>
+              <p class="hint">Número positivo: aparecen más tarde. Negativo: más temprano.</p>
+              <label class="row"><input type="checkbox" id="extend" checked> Que cada subtítulo dure hasta que empieza el siguiente</label>
+              <label class="row"><input type="checkbox" id="stripPunct"> Quitar signos de puntuación</label>
+              <label id="punctRow">Signos a quitar
+                <input type="text" id="punctList" value=".,;:!?¿¡()[]{}&quot;“”«»…—–"></label>
+              <p class="hint">⚠ Al cambiar estas opciones se rearman las líneas y se pierden las ediciones hechas a mano.</p>
+              </fieldset>
+
+              <details id="findBox" class="fold">
+                <summary>Buscar y reemplazar palabras</summary>
+                <div class="foldbody">
+                  <div class="row2 gap">
+                    <input type="text" id="findText" placeholder="Buscar" autocomplete="off">
+                    <input type="text" id="replText" placeholder="Reemplazar por" autocomplete="off">
+                  </div>
+                  <div class="row2 gap">
+                    <label class="row"><input type="checkbox" id="findWhole" checked> Palabra completa</label>
+                    <label class="row"><input type="checkbox" id="findCase"> Distinguir mayúsculas</label>
+                  </div>
+                  <label>En
+                    <select id="findScope">
+                      <option value="all">todos los subtítulos</option>
+                      <option value="sel">solo los que marqué</option>
+                    </select></label>
+                  <button id="btnReplace" class="secondary">Reemplazar</button>
+                </div>
+              </details>
+            </div>
+
+            <div id="optStyle" class="pane" hidden>
+              <label>Aplicar los cambios a
+                <select id="styleScope">
+                  <option value="all">Todos los subtítulos</option>
+                  <option value="sel">Solo los que marqué</option>
+                </select></label>
+              <p class="hint" id="styleScopeHint"></p>
+              <button id="btnUnstyle" class="secondary">Volver al estilo general (los marcados)</button>
+              <div class="seg subtabs" id="styleSub">
+                <button type="button" data-v="style" class="on">🎨 Estilo</button>
+                <button type="button" data-v="anim">✨ Animación</button>
+              </div>
+              <div id="styleMain" class="subpane">
+              <div class="gallerylbl">Estilos</div>
+              <div id="presetGallery" class="gallery"></div>
+              <label class="presetlbl">Estilo elegido
+                <select id="presetSel"></select></label>
+              <div class="row2 gap">
+                <input type="text" id="presetName" placeholder="Nombre para guardar este estilo">
+                <button id="btnPresetSave" class="secondary">Guardar como estilo nuevo</button>
+              </div>
+              <div class="row2 gap">
+                <button id="btnPresetUpdate" class="secondary" disabled>Actualizar este estilo</button>
+                <button id="btnPresetDel" class="secondary">Borrar</button>
+              </div>
+              <p class="hint" id="presetHint"></p>
+              <label>Fuente <input type="text" id="font" class="fontpick" value="Montserrat"></label>
+              <label>Tamaño <span id="sizeVal">64</span>
+                <input type="range" id="size" min="24" max="140" value="64"></label>
+              <label>Grosor <span id="weightVal">800</span>
+                <input type="range" id="weight" min="400" max="900" step="100" value="800"></label>
+              <label>Contorno <span id="outlineWVal">12</span> %
+                <input type="range" id="outlineW" min="0" max="30" value="12"></label>
+              <div class="posblock">
+                <div class="gallerylbl">Posición del texto</div>
+                <div class="poswrap">
+                  <div id="posPad" class="pospad" title="Arrastrá el punto para mover el texto"><div id="posDot" class="posdot"></div></div>
+                  <div class="posctl">
+                    <label>Altura <span class="hint">(arriba ↔ abajo)</span>
+                      <input type="range" id="posV" min="5" max="95" value="78"></label>
+                    <label>Horizontal <span class="hint">(izquierda ↔ derecha)</span>
+                      <input type="range" id="posH" min="5" max="95" value="50"></label>
+                    <div id="posQuick" class="row2 gap">
+                      <button type="button" class="secondary" data-v="18">Arriba</button>
+                      <button type="button" class="secondary" data-v="50">Centro</button>
+                      <button type="button" class="secondary" data-v="78">Abajo</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="colors">
+                <label>Texto <input type="text" class="hex" id="color" value="#ffffff"></label>
+                <label>Resalte <input type="text" class="hex" id="highlight" value="#ffd400"></label>
+                <label>Contorno <input type="text" class="hex" id="outlineColor" value="#000000"></label>
+                <label>Caja <input type="text" class="hex" id="boxColor" value="#000000"></label>
+              </div>
+              <label class="row"><input type="checkbox" id="outline" checked> Contorno</label>
+              <label class="row"><input type="checkbox" id="box"> Caja detrás del texto</label>
+              <label class="row"><input type="checkbox" id="shadow" checked> Sombra</label>
+              <label class="row"><input type="checkbox" id="uppercase"> MAYÚSCULAS</label>
+              </div>
+              <div id="animMain" class="subpane" hidden>
+              <p class="hint">Tocá las que quieras: se pueden combinar.</p>
+              <div id="animList"></div>
+              <label class="row"><input type="checkbox" id="oneWord"> Una palabra por vez (centrada)</label>
+              <p class="hint">Cada palabra aparece sola y centrada, con las animaciones que elegiste. Al cambiarlo se rearman las líneas.</p>
+              <label class="row"><input type="checkbox" id="perWord"> Animar palabra por palabra</label>
+              <p class="hint">El pop y el fundido los hace cada palabra cuando suena, en vez de toda la línea junta.</p>
+              </div>
+            </div>
+
+            <div id="optOut" class="pane" hidden>
+              <div class="fmt">Formato
+                <input type="hidden" id="outFormat" value="png">
+                <div class="seg" id="outSeg">
+                  <button type="button" data-v="png">PNG<small>liviano</small></button>
+                  <button type="button" data-v="video">Video .mov<small>con transparencia</small></button>
+                </div>
+              </div>
+              <label id="capTypeRow">Tipo de video
+                <select id="capType">
+                  <option value="individual">Clips individuales (uno por línea)</option>
+                  <option value="single">Un solo clip (más rápido)</option>
+                </select></label>
+              <label>Qué agregar
+                <select id="addScope">
+                  <option value="all">Todos los subtítulos</option>
+                  <option value="sel">Solo los que marqué</option>
+                </select></label>
+              <label class="row"><input type="checkbox" id="replacePrev" checked> Reemplazar los subtítulos de AlchemyCut que ya estén en ese tramo</label>
+              <label>Pista de destino
+                <select id="targetTrack"><option value="auto">Automática (la primera libre arriba)</option></select></label>
+              <p class="hint" id="formatHint"></p>
+              <button id="btnAnimated" class="primary">Agregar los subtítulos a la secuencia</button>
+              <button id="btnCaptions" class="secondary">Agregar como subtítulos de Premiere (sin estilo)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p id="status" class="hint" role="status"></p>
+  </main>
+  <script src="js/render.js"></script>
+  <script src="js/pickers.js"></script>
+  <script src="js/keys.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
