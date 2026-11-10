@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { URL } = require('url');      // la de Node: dentro de Premiere el URL global es la del navegador y https.get no la acepta
 
 const HOSTS = [/^github\.com$/i, /(^|\.)githubusercontent\.com$/i];
 const MAX_ZIP = 80 * 1024 * 1024;
@@ -34,11 +35,12 @@ function fetchBuffer(url, opts = {}, hops = 0) {
       if (!HOSTS.some((re) => re.test(u.hostname))) return reject(new Error('Descarga bloqueada: ' + u.hostname + ' no es un servidor de GitHub.'));
     }
     const lib = u.protocol === 'http:' ? http : https;
-    const req = lib.get(u, { headers: { 'User-Agent': 'AlchemyCut-updater', Accept: '*/*' } }, (res) => {
+    // opciones sueltas (no un objeto URL): funciona igual en todas las versiones de Node y dentro de Premiere
+    const req = lib.get({ protocol: u.protocol, hostname: u.hostname, port: u.port || undefined, path: (u.pathname || '/') + (u.search || ''), headers: { 'User-Agent': 'AlchemyCut-updater', Accept: '*/*' } }, (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
         res.resume();
         if (hops > 6) return reject(new Error('Demasiadas redirecciones.'));
-        return resolve(fetchBuffer(new URL(res.headers.location, u).toString(), opts, hops + 1));
+        return resolve(fetchBuffer(new URL(res.headers.location, u.href).toString(), opts, hops + 1));
       }
       if (res.statusCode !== 200) { res.resume(); return reject(new Error('El servidor respondió ' + res.statusCode + '.')); }
       const total = +res.headers['content-length'] || 0, max = opts.maxBytes || MAX_ZIP;
@@ -88,7 +90,14 @@ function copyTree(from, to) {
     try { fs.chmodSync(to, st.mode); } catch (e) { /* no pasa nada */ }
   }
 }
-const rmrf = (p) => { try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) { /* ya no estaba */ } };
+// borra un archivo o carpeta (fs.rmSync no existe en las versiones de Node más viejas)
+const rmrf = (p) => {
+  try {
+    if (fs.rmSync) { fs.rmSync(p, { recursive: true, force: true }); return; }
+    const st = fs.lstatSync(p);
+    if (st.isDirectory() && !st.isSymbolicLink()) { fs.readdirSync(p).forEach((n) => rmrf(path.join(p, n))); fs.rmdirSync(p); } else fs.unlinkSync(p);
+  } catch (e) { /* ya no estaba */ }
+};
 
 // Instala la versión indicada por check(). onProgress({ label, got, total, pct })
 async function install({ extDir, info, onProgress, insecureForTests } = {}) {

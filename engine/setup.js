@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const cp = require('child_process');
+const { URL } = require('url');     // la de Node (dentro de Premiere el URL global es la del navegador)
 
 const HOME = path.join(os.homedir(), '.alchemycut');
 const BIN = path.join(HOME, 'bin');
@@ -64,9 +65,14 @@ function status(model) {
 function sizeMB(list, model) { return list.reduce((t, m) => t + (m === 'model' ? MODEL_MB[model] || 600 : SIZES_MB[m] || 0), 0); }
 
 // ---------- red ----------
+// opciones sueltas para https.get (no un objeto URL ni la forma de 3 argumentos): funciona en todas las versiones de Node
+function reqOpts(url, headers) {
+  const u = new URL(url);
+  return { protocol: u.protocol, hostname: u.hostname, port: u.port || undefined, path: (u.pathname || '/') + (u.search || ''), headers };
+}
 function getJson(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'AlchemyCut', Accept: 'application/vnd.github+json' } }, (res) => {
+    https.get(reqOpts(url, { 'User-Agent': 'AlchemyCut', Accept: 'application/vnd.github+json' }), (res) => {
       let b = '';
       res.setEncoding('utf8');
       res.on('data', (d) => (b += d));
@@ -81,7 +87,7 @@ function getJson(url) {
 // Baja a un archivo, siguiendo redirecciones. Escribe en .part y renombra al terminar, así nunca queda un archivo a medias.
 function download(url, dest, onProgress, hops = 0) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'AlchemyCut' } }, (res) => {
+    const req = https.get(reqOpts(url, { 'User-Agent': 'AlchemyCut' }), (res) => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
         res.resume();
         if (hops > 8) return reject(new Error('Demasiadas redirecciones al bajar ' + url));
@@ -131,7 +137,13 @@ function findFile(dir, name, depth = 0) {
   if (depth < 4) for (const e of entries) if (e.isDirectory()) { const f = findFile(path.join(dir, e.name), name, depth + 1); if (f) return f; }
   return null;
 }
-function rmrf(p) { try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) {} }
+function rmrf(p) {
+  try {
+    if (fs.rmSync) { fs.rmSync(p, { recursive: true, force: true }); return; }
+    const st = fs.lstatSync(p);
+    if (st.isDirectory() && !st.isSymbolicLink()) { fs.readdirSync(p).forEach((n) => rmrf(path.join(p, n))); fs.rmdirSync(p); } else fs.unlinkSync(p);
+  } catch (e) { /* ya no estaba */ }
+}
 function copyDirFlat(from, to) {
   fs.mkdirSync(to, { recursive: true });
   for (const e of fs.readdirSync(from, { withFileTypes: true })) if (e.isFile()) fs.copyFileSync(path.join(from, e.name), path.join(to, e.name));
