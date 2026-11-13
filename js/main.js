@@ -471,6 +471,30 @@
     return lines;
   }
 
+  // ¿Hay cambios sin guardar? Se compara una "firma" de las líneas (texto, tiempos, estilo) con la del último momento en que
+  // estaban limpias: recién transcriptas, recién agregadas a la secuencia o recién cargadas de ella.
+  function linesSig() {
+    var anyGlobal = state.lines.some(function (l) { return !l.sp; });
+    var g = anyGlobal ? (state.scopeSel && state.globalSp ? state.globalSp : collectPreset()) : null;
+    return JSON.stringify({ g: g, l: state.lines.map(function (l) { return [l.text, Math.round(l.start * 1000), Math.round(l.end * 1000), l.sp || null]; }) });
+  }
+  function markClean() { state.baseSig = linesSig(); }
+  function hasEdits() { return !!(state.lines.length && state.baseSig !== undefined && linesSig() !== state.baseSig); }
+  // Un botón que reemplaza lo que hay en el editor pide un segundo toque si hay ediciones sin guardar.
+  function guardReplace(btn, run) {
+    var label = btn.textContent, timer = null;
+    btn.onclick = function () {
+      if (hasEdits() && btn.getAttribute('data-armed') !== '1') {
+        btn.setAttribute('data-armed', '1'); btn.textContent = '⚠ Reemplazar lo que estoy editando: tocá otra vez';
+        status('Tenés ' + state.lines.length + (state.lines.length === 1 ? ' subtítulo' : ' subtítulos') + ' en el editor con cambios que no agregaste a la secuencia. Si seguís, se reemplazan. Tocá otra vez para continuar, o seguí editando para cancelar.', true);
+        timer = setTimeout(function () { btn.removeAttribute('data-armed'); btn.textContent = label; }, 7000);
+        return;
+      }
+      clearTimeout(timer); btn.removeAttribute('data-armed'); btn.textContent = label;
+      run();
+    };
+  }
+
   // Corre una línea entera (y sus palabras) d segundos: para arreglar a mano un subtítulo que quedó desfasado.
   function nudgeLine(line, d) {
     var first = line.start;
@@ -488,6 +512,7 @@
     state.lines = fixMinDur(extendTiming(splitOneWord(shiftLines(stripPunctuation(built)))));
     state.active = 0;
     renderCaptions();
+    markClean();
   }
 
   function autoGrow(ta) { ta.style.height = 'auto'; ta.style.height = Math.max(30, ta.scrollHeight + 2) + 'px'; }
@@ -1080,7 +1105,7 @@
   };
 
   // ----- Subtítulos -----
-  $('btnTranscribe').onclick = function () {
+  function runTranscribe() {
     if (needKey()) return status(needKey(), true);
     var sp = setupProblem(true);
     if (sp) return status(sp, true);
@@ -1107,7 +1132,8 @@
       showSubs('editor');
     }).catch(function (e) { status(e.message, true); })
       .then(function () { $('btnTranscribe').disabled = false; });
-  };
+  }
+  guardReplace($('btnTranscribe'), runTranscribe);
 
   $('btnApply').onclick = function () {
     var r = state.cutsResult, c = state.cutsClip;
@@ -1146,7 +1172,7 @@
     var srtPath = path.join(exportDir(), 'ac_' + baseName() + '_' + Date.now().toString(36) + '.srt');
     fs.writeFileSync(srtPath, engine.toSrt(state.lines));
     host('addCaptions', { srtPath: srtPath, startSec: state.clip.startSec })
-      .then(function (d) { status(d.track ? 'Captions agregados.' : d.note); })
+      .then(function (d) { markClean(); status(d.track ? 'Subtítulos agregados.' : d.note); })
       .catch(function (e) { status(e.message, true); });
   };
 
@@ -1227,7 +1253,7 @@
     return null;
   }
 
-  $('btnLoadSeq').onclick = function () {
+  function runLoadSeq() {
     status('Leyendo los subtítulos seleccionados…');
     host('getSelectedCaptionClips').then(function (d) {
       if (!d.clips.length) throw new Error('No hay clips de subtítulos de AlchemyCut seleccionados' + (d.total ? ' (seleccionaste ' + d.total + ' clip' + (d.total === 1 ? '' : 's') + ' que no son de AlchemyCut)' : '') + '. Seleccionalos en la secuencia (se llaman “ac_…”) y probá de nuevo.');
@@ -1276,12 +1302,14 @@
       $('styleScope').dispatchEvent(new Event('change'));
       renderCaptions();
       onSelectionChanged();
+      markClean();
       showSubs('editor');
       showPane('optTabs', 'optStyle');
       status('Cargué ' + state.lines.length + (state.lines.length === 1 ? ' subtítulo' : ' subtítulos') + ' de la secuencia. Cambiá lo que quieras y, andá a “Agregar” y tocá “Agregar los subtítulos a la secuencia”: reemplaza solo esos.' +
         (missing || bad ? ' (' + (missing + bad) + ' clip' + (missing + bad === 1 ? '' : 's') + ' seleccionado' + (missing + bad === 1 ? '' : 's') + ' sin registro: no se pudieron cargar)' : ''));
     }).catch(function (e) { status(e.message, true); });
-  };
+  }
+  guardReplace($('btnLoadSeq'), runLoadSeq);
 
   $('btnAnimated').onclick = function () {
     if (rendering || !state.lines.length) return;
@@ -1306,6 +1334,7 @@
         return host('addOverlays', { items: items, track: $('targetTrack').value, bin: 'AlchemyCut ' + run, still: png, W: fsz.W, H: fsz.H });
       })
       .then(function (d) {
+        markClean();
         status('Listo: ' + d.placed + ' clips en la pista V' + d.track + (replaced ? ' (reemplazó ' + replaced + ' de antes)' : '') + (d.note ? '. ' + d.note : '.'), d.lost > 0);
       })
       .catch(function (e) { status(e.message, true); })

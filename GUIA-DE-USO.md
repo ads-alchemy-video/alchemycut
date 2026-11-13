@@ -77,6 +77,7 @@ Se abre el editor: la **vista previa** queda a la izquierda y, a su lado, la pes
 - Al final, plegable, **Buscar y reemplazar palabras**: en todos los subtítulos o solo en los marcados.
 - Clic en la vista previa para **mover el texto** de lugar.
 - “Volver al inicio” no pierde nada: podés volver con **Volver a los subtítulos que ya transcribí →**.
+- Si volvés al inicio y transcribís otra selección (o cargás subtítulos de la secuencia) teniendo **cambios sin agregar**, el panel te avisa y pide tocar el botón otra vez antes de reemplazar lo que estás editando. Lo que ya agregaste a la secuencia no se toca.
 
 ### 5. Estilo y animación, y Agregar
 - **Estilo y animación** (una pestaña con dos solapitas: **Estilo** y **Animación**): en Estilo, elegí uno de los **estilos** de la galería (se ven con su fuente, color y contorno) o armá el tuyo: fuente, tamaño, grosor, contorno, colores (texto, resalte, contorno, caja), caja detrás del texto, sombra, MAYÚSCULAS.
