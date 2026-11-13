@@ -21,6 +21,28 @@ function _json(v) {
 function _ok(data) { return _json({ ok: true, data: data }); }
 function _err(msg) { return _json({ ok: false, error: msg }); }
 
+// Velocidad de un clip y cómo leer su entrada / salida. Premiere informa la velocidad con getSpeed(); en las versiones nuevas,
+// inPoint / outPoint vienen en "tiempo del clip" (ya con la velocidad aplicada: outPoint - inPoint = duración en la secuencia),
+// y el momento real del archivo es inPoint × velocidad. En las versiones que no tienen getSpeed se deduce de la diferencia
+// entre lo que dura en la secuencia y lo que dura entre entrada y salida (ahí entrada y salida son tiempo del archivo).
+// Devuelve { speed: segundos del archivo por segundo de secuencia, srcScale: multiplicador de inPoint para llegar al tiempo del archivo, bad }.
+function _clipSpeed(c) {
+  var out = { speed: 1, srcScale: 1, bad: false };
+  var seqDur = c.end.seconds - c.start.seconds, srcDur = c.outPoint.seconds - c.inPoint.seconds;
+  if (!(seqDur > 0.001)) return out;
+  var ratio = srcDur / seqDur, gs = null;
+  try { if (typeof c.getSpeed === 'function') gs = c.getSpeed(); } catch (e0) {}
+  if (typeof gs === 'number' && gs === gs) {
+    if (gs > 0.1 && gs < 10) {
+      out.speed = Math.abs(gs - 1) < 0.01 ? 1 : gs;
+      if (out.speed !== 1 && Math.abs(ratio - 1) < 0.02) out.srcScale = out.speed;
+    } else out.bad = true;
+  } else if (ratio > 0.1 && ratio < 10) {
+    out.speed = Math.abs(ratio - 1) < 0.01 ? 1 : ratio;
+  } else out.bad = true;
+  return out;
+}
+
 // Datos del clip seleccionado en la secuencia activa.
 function ac_getSelectedClip() {
   try {
@@ -34,14 +56,13 @@ function ac_getSelectedClip() {
       if (!path) continue;
       var seqDur = c.end.seconds - c.start.seconds;
       var srcDur = c.outPoint.seconds - c.inPoint.seconds;
-      var ratio1 = seqDur > 0.001 ? srcDur / seqDur : 1;
-      var okSpeed = ratio1 > 0.1 && ratio1 < 10;
+      var cs1 = _clipSpeed(c);
       return _ok({
         name: c.name, path: path,
-        inSec: c.inPoint.seconds, outSec: c.outPoint.seconds,
+        inSec: c.inPoint.seconds * cs1.srcScale, outSec: c.inPoint.seconds * cs1.srcScale + seqDur * cs1.speed, inRaw: c.inPoint.seconds,
         startSec: c.start.seconds, endSec: c.end.seconds,
-        speed: okSpeed && Math.abs(ratio1 - 1) >= 0.01 ? ratio1 : 1,
-        speedMismatch: !okSpeed,
+        speed: cs1.speed,
+        speedMismatch: cs1.bad,
         width: seq.frameSizeHorizontal, height: seq.frameSizeVertical, videoTracks: seq.videoTracks.numTracks,
         fps: Math.round(TICKS / parseFloat(seq.timebase) * 1000) / 1000
       });
@@ -114,15 +135,9 @@ function ac_getClips(arg) {
     // from/to: ventana en el tiempo de la secuencia a la que pertenece el clip (null = sin límite).
     // delta: se suma al tiempo de esa secuencia para llegar al tiempo de la secuencia principal.
     function emit(c, from, to, delta, depth) {
-      var st = c.start.seconds, en = c.end.seconds, inS = c.inPoint.seconds;
-      // Velocidad del clip: cuántos segundos del archivo se usan por cada segundo de la secuencia (1 = normal, 1.25 = 125 %).
-      // Si no se puede saber (clip invertido o con tiempo variable), se marca para avisar.
-      var seqDur0 = en - st, srcDur0 = c.outPoint.seconds - c.inPoint.seconds;
-      var speed = 1, badSpeed = false;
-      if (seqDur0 > 0.001) {
-        var ratio = srcDur0 / seqDur0;
-        if (ratio > 0.1 && ratio < 10) { speed = Math.abs(ratio - 1) < 0.01 ? 1 : ratio; } else badSpeed = true;
-      }
+      var cs0 = _clipSpeed(c);
+      var st = c.start.seconds, en = c.end.seconds, inS = c.inPoint.seconds * cs0.srcScale;      // inS: momento del archivo donde empieza el clip
+      var speed = cs0.speed, badSpeed = cs0.bad;
       if (from !== null && st < from) { inS += (from - st) * speed; st = from; }
       if (to !== null && en > to) en = to;
       if (en - st < 0.01) return;
@@ -132,7 +147,7 @@ function ac_getClips(arg) {
         var key = (st + delta).toFixed(3) + '|' + (en + delta).toFixed(3) + '|' + inS.toFixed(3) + '|' + path;
         if (seen[key]) return;
         seen[key] = true;
-        list.push({ name: c.name, path: path, inSec: inS, outSec: inS + (en - st) * speed, startSec: st + delta, endSec: en + delta, speed: speed, speedMismatch: badSpeed });
+        list.push({ name: c.name, path: path, inSec: inS, outSec: inS + (en - st) * speed, inRaw: c.inPoint.seconds, startSec: st + delta, endSec: en + delta, speed: speed, speedMismatch: badSpeed });
         return;
       }
       // sin archivo: puede ser una secuencia anidada, y el audio está adentro de ella

@@ -1114,7 +1114,7 @@
     if (!r || !c) return;
     $('btnApply').disabled = true;
     status('Revisando que el clip siga igual en la secuencia…');
-    host('checkClip', { name: c.name, startSec: c.startSec, endSec: c.endSec, inSec: c.inSec })
+    host('checkClip', { name: c.name, startSec: c.startSec, endSec: c.endSec, inSec: c.inRaw !== undefined ? c.inRaw : c.inSec })
       .then(function (chk) {
         if (!chk.found) {
           throw new Error('El clip “' + c.name + '” ya no está en la secuencia como cuando lo analizaste (empezaba en ' + c.startSec.toFixed(2) + ' s' +
