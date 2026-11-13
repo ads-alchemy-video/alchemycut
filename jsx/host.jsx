@@ -34,11 +34,14 @@ function ac_getSelectedClip() {
       if (!path) continue;
       var seqDur = c.end.seconds - c.start.seconds;
       var srcDur = c.outPoint.seconds - c.inPoint.seconds;
+      var ratio1 = seqDur > 0.001 ? srcDur / seqDur : 1;
+      var okSpeed = ratio1 > 0.1 && ratio1 < 10;
       return _ok({
         name: c.name, path: path,
         inSec: c.inPoint.seconds, outSec: c.outPoint.seconds,
         startSec: c.start.seconds, endSec: c.end.seconds,
-        speedMismatch: Math.abs(seqDur - srcDur) > 0.05,
+        speed: okSpeed && Math.abs(ratio1 - 1) >= 0.01 ? ratio1 : 1,
+        speedMismatch: !okSpeed,
         width: seq.frameSizeHorizontal, height: seq.frameSizeVertical, videoTracks: seq.videoTracks.numTracks,
         fps: Math.round(TICKS / parseFloat(seq.timebase) * 1000) / 1000
       });
@@ -112,7 +115,15 @@ function ac_getClips(arg) {
     // delta: se suma al tiempo de esa secuencia para llegar al tiempo de la secuencia principal.
     function emit(c, from, to, delta, depth) {
       var st = c.start.seconds, en = c.end.seconds, inS = c.inPoint.seconds;
-      if (from !== null && st < from) { inS += from - st; st = from; }
+      // Velocidad del clip: cuántos segundos del archivo se usan por cada segundo de la secuencia (1 = normal, 1.25 = 125 %).
+      // Si no se puede saber (clip invertido o con tiempo variable), se marca para avisar.
+      var seqDur0 = en - st, srcDur0 = c.outPoint.seconds - c.inPoint.seconds;
+      var speed = 1, badSpeed = false;
+      if (seqDur0 > 0.001) {
+        var ratio = srcDur0 / seqDur0;
+        if (ratio > 0.1 && ratio < 10) { speed = Math.abs(ratio - 1) < 0.01 ? 1 : ratio; } else badSpeed = true;
+      }
+      if (from !== null && st < from) { inS += (from - st) * speed; st = from; }
       if (to !== null && en > to) en = to;
       if (en - st < 0.01) return;
       var path = mediaPath(c);
@@ -121,8 +132,7 @@ function ac_getClips(arg) {
         var key = (st + delta).toFixed(3) + '|' + (en + delta).toFixed(3) + '|' + inS.toFixed(3) + '|' + path;
         if (seen[key]) return;
         seen[key] = true;
-        var seqDur = c.end.seconds - c.start.seconds, srcDur = c.outPoint.seconds - c.inPoint.seconds;
-        list.push({ name: c.name, path: path, inSec: inS, outSec: inS + (en - st), startSec: st + delta, endSec: en + delta, speedMismatch: Math.abs(seqDur - srcDur) > 0.05 });
+        list.push({ name: c.name, path: path, inSec: inS, outSec: inS + (en - st) * speed, startSec: st + delta, endSec: en + delta, speed: speed, speedMismatch: badSpeed });
         return;
       }
       // sin archivo: puede ser una secuencia anidada, y el audio está adentro de ella
@@ -131,12 +141,14 @@ function ac_getClips(arg) {
       var ti = autoTrack(sub);
       if (ti < 0) { skipped++; return; }
       nestedUsed++;
-      var win0 = inS, win1 = inS + (en - st), tr = sub.audioTracks[ti];
+      var win0 = inS, win1 = inS + (en - st) * speed, tr = sub.audioTracks[ti], n0 = list.length;
       for (var q = 0; q < tr.clips.numItems; q++) {
         var nc = tr.clips[q];
         if (nc.end.seconds <= win0 || nc.start.seconds >= win1) continue;
         emit(nc, win0, win1, delta + st - inS, depth + 1);
       }
+      // una secuencia anidada con otra velocidad: los tiempos de adentro no se pueden mapear con una simple suma
+      if (speed !== 1 || badSpeed) for (var k0 = n0; k0 < list.length; k0++) list[k0].speedMismatch = true;
     }
 
     if (scope === 'selected') {

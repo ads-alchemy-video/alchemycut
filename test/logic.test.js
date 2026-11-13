@@ -1,7 +1,7 @@
 'use strict';
 // node test/logic.test.js  — prueba planCuts / muletillas / captions con palabras simuladas.
 const assert = require('assert');
-const { wordsFromTokens, snapToSpeech, dtwPreset, scriptSentences, matchTakes, planPauses, planSmart, planCuts, buildCaptions, toSrt, remapTime, findRepeats, findQuietLevels, alignToScript, scriptPrompt } = require('../engine/lib');
+const { atempoChain, wordsFromTokens, snapToSpeech, dtwPreset, scriptSentences, matchTakes, planPauses, planSmart, planCuts, buildCaptions, toSrt, remapTime, findRepeats, findQuietLevels, alignToScript, scriptPrompt } = require('../engine/lib');
 
 const words = [
   { text: 'Hola,', start: 0.2, end: 0.6 },
@@ -263,6 +263,16 @@ const mk = (txt, t0, step = 0.3) => txt.split(' ').map((text, i) => ({ text, sta
   // sin pausas claras (ruido de fondo) no cambia nada
   const ns = snapToSpeech(heard, [], 3.5);
   ns.forEach((w, i) => assert.ok(w.start <= heard[i].mid && w.end >= heard[i].mid && Math.abs(w.start - Math.max(heard[i].start, 0)) < 0.7));
+}
+
+// ---------- velocidad de los clips ----------
+{
+  assert.strictEqual(atempoChain(1.25), 'atempo=1.25000');
+  assert.strictEqual(atempoChain(4), 'atempo=2.0,atempo=2.00000');
+  assert.strictEqual(atempoChain(0.25), 'atempo=0.5,atempo=0.50000');
+  // el audio de un clip al 125 % dura 1/1.25 en la secuencia y toma 1.25 s del archivo por cada segundo de secuencia
+  const f = (sp) => atempoChain(sp).split(',').reduce((p, x) => p * parseFloat(x.split('=')[1]), 1);
+  [0.3, 0.5, 0.8, 1.25, 2, 3.5, 5].forEach((sp) => assert.ok(Math.abs(f(sp) - sp) < 1e-3, 'cadena de atempo para ' + sp));
 }
 
 console.log('OK\n' + toSrt(lines));

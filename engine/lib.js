@@ -99,6 +99,16 @@ async function extractFrame(input, sec, outFile) {
 // Une en un solo audio los clips elegidos en la secuencia, cada uno en su posición (los huecos entre clips quedan en silencio).
 // Así el audio tiene la misma línea de tiempo que la secuencia, aunque los clips ya estén cortados en pedazos.
 // clips: [{ path, inSec, startSec, endSec }]  →  { file, base, duration }   (base = inicio del primer clip en la secuencia)
+// atempo acepta 0.5–2 por filtro (los ffmpeg viejos no pasan de ahí): se encadena para otras velocidades
+function atempoChain(speed) {
+  const f = [];
+  let s = speed;
+  while (s > 2) { f.push('atempo=2.0'); s /= 2; }
+  while (s < 0.5) { f.push('atempo=0.5'); s /= 0.5; }
+  f.push('atempo=' + s.toFixed(5));
+  return f.join(',');
+}
+
 async function buildTimelineAudio(clips, outFile) {
   const sorted = [...clips].sort((a, b) => a.startSec - b.startSec);
   if (!sorted.length) throw new Error('No hay clips para armar el audio.');
@@ -109,13 +119,16 @@ async function buildTimelineAudio(clips, outFile) {
   let t = base;
   sorted.forEach((c, i) => {
     let start = c.startSec, inSec = c.inSec;
+    const speed = c.speed > 0.1 && c.speed < 10 ? c.speed : 1;       // segundos del archivo que se usan por cada segundo de la secuencia
     const overlap = t - start;
-    if (overlap > 0) { start += overlap; inSec += overlap; }          // clips que se pisan: se usa lo que no está cubierto
+    if (overlap > 0) { start += overlap; inSec += overlap * speed; }   // clips que se pisan: se usa lo que no está cubierto
     const dur = c.endSec - start;
     if (dur < 0.01) return;
     const gap = start - t;
     if (gap > 0.01) { parts.push(`anullsrc=r=16000:cl=mono,atrim=0:${gap.toFixed(3)},asetpts=PTS-STARTPTS,${fmt}[g${i}]`); labels.push(`[g${i}]`); }
-    parts.push(`[${paths.indexOf(c.path)}:a]atrim=start=${inSec.toFixed(3)}:end=${(inSec + dur).toFixed(3)},asetpts=PTS-STARTPTS,${fmt}[a${i}]`);
+    // con otra velocidad se toma del archivo dur × speed segundos y se acelera / frena a la duración que tiene en la secuencia
+    const tempo = Math.abs(speed - 1) < 0.001 ? '' : `,${atempoChain(speed)},apad=whole_dur=${dur.toFixed(3)},atrim=0:${dur.toFixed(3)},asetpts=PTS-STARTPTS`;
+    parts.push(`[${paths.indexOf(c.path)}:a]atrim=start=${inSec.toFixed(3)}:end=${(inSec + dur * speed).toFixed(3)},asetpts=PTS-STARTPTS${tempo},${fmt}[a${i}]`);
     labels.push(`[a${i}]`);
     t = c.endSec;
   });
@@ -911,7 +924,7 @@ async function analyze(opts) {
 }
 
 module.exports = {
-  wordsFromTokens, snapToSpeech, dtwPreset, analyze, planCuts, findFillers, buildCaptions, toSrt, srtTime, remapTime, mergeRanges,
+  atempoChain, wordsFromTokens, snapToSpeech, dtwPreset, analyze, planCuts, findFillers, buildCaptions, toSrt, srtTime, remapTime, mergeRanges,
   foldWord, fold, similarity, findBin, hasBin, detectSilences, alignWords, readPcm, alignToScript, scriptPrompt, scriptTokens, buildTimelineAudio, measurePeak, autoThreshold, findQuietLevels, findRepeats, extractAudio, extractFrame, startOverlayEncoder, audioDuration, transcribe, FILLERS,
 };
 

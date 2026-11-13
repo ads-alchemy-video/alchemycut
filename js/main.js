@@ -862,9 +862,9 @@
   // Dónde está en los archivos originales un instante de la línea de tiempo del análisis (para sacar el fotograma de fondo).
   function sourceAt(t) {
     var tl = state.timeline, k;
-    for (k = 0; k < tl.length; k++) if (t >= tl[k].from && t < tl[k].to) return { path: tl[k].path, t: tl[k].inSec + (t - tl[k].from) };
-    if (tl.length) { var last = tl[tl.length - 1]; return { path: last.path, t: last.inSec + Math.max(0, Math.min(t, last.to) - last.from) }; }
-    return { path: state.clip.path, t: state.clip.inSec + t };
+    for (k = 0; k < tl.length; k++) if (t >= tl[k].from && t < tl[k].to) return { path: tl[k].path, t: tl[k].inSec + (t - tl[k].from) * (tl[k].speed || 1) };
+    if (tl.length) { var last = tl[tl.length - 1]; return { path: last.path, t: last.inSec + Math.max(0, Math.min(t, last.to) - last.from) * (last.speed || 1) }; }
+    return { path: state.clip.path, t: state.clip.inSec + t * (state.clip.speed || 1) };
   }
 
   // ---- Selección, análisis y cortes ----
@@ -885,7 +885,9 @@
       return;
     }
     $('btnRead').textContent = state.mode === 'cuts' ? 'Leer selección' : 'Leer lo que voy a transcribir';
-    var warn = cs.some(function (c) { return c.speedMismatch; }) ? ' · ⚠ hay clips con velocidad distinta de 100 %, los tiempos no van a caer bien' : '';
+    var warn = cs.some(function (c) { return c.speedMismatch; }) ? ' · ⚠ hay clips invertidos, con velocidad variable o dentro de una secuencia anidada con otra velocidad: los tiempos pueden no caer bien' : '';
+    var fast = cs.filter(function (c) { return c.speed && c.speed !== 1; });
+    if (fast.length) warn += ' · velocidad ajustada (' + fast.slice(0, 3).map(function (c) { return Math.round(c.speed * 100) + ' %'; }).join(', ') + (fast.length > 3 ? '…' : '') + ')';
     if (state.mode === 'cuts') {
       var c = cs[0];
       $('clipInfo').textContent = c.name + ' · ' + fmt(c.outSec - c.inSec) + (cs.length > 1 ? ' · ⚠ hay ' + cs.length + ' clips seleccionados: los cortes se hacen sobre el primero' : '') + warn;
@@ -1092,7 +1094,7 @@
       // el audio se arma con la posición de cada clip en la secuencia, así los tiempos coinciden con la línea de tiempo
       return engine.buildTimelineAudio(clips, path.join(dir, 'timeline.mp3')).then(function (tl) {
         status('Transcribiendo ' + clock(tl.duration) + ' de la secuencia…');
-        state.timeline = clips.map(function (c) { return { path: c.path, inSec: c.inSec, from: c.startSec - tl.base, to: c.endSec - tl.base }; });
+        state.timeline = clips.map(function (c) { return { path: c.path, inSec: c.inSec, speed: c.speed || 1, from: c.startSec - tl.base, to: c.endSec - tl.base }; });
         return engine.analyze(Object.assign({ audio: tl.file, input: clips[0].path, cuts: false, captions: true, autoThresh: true, script: $('scriptText').value, scriptFix: $('scriptFix').checked }, transcriptionArgs()));
       });
     }).then(function (r) {
@@ -1119,7 +1121,7 @@
             (chk.near ? '; ahora hay uno igual en ' + chk.near : '') + '). Probablemente ya aplicaste estos cortes o lo moviste: seleccioná el clip, apretá “Leer selección” y volvé a analizar.');
         }
         status('Aplicando cortes…');
-        return host('applyCuts', { startSec: c.startSec, removed: engine.mergeRanges(checkedCuts().map(function (x) { return { start: x.start, end: x.end, reason: x.reason }; }), 0).map(function (x) { return { start: x.start, end: x.end }; }) });
+        return host('applyCuts', { startSec: c.startSec, removed: engine.mergeRanges(checkedCuts().map(function (x) { return { start: x.start, end: x.end, reason: x.reason }; }), 0).map(function (x) { return { start: x.start / (c.speed || 1), end: x.end / (c.speed || 1) }; }) });
       })
       .then(function (d) {
         if (d.removedItems > 0) status('Listo: ' + d.ranges + ' cortes aplicados. Para hacer otro análisis, volvé a leer la selección.');
