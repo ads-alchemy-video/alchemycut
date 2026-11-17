@@ -312,9 +312,28 @@
     labels();
     drawPreview();
   }
+  // Cada estilo también puede guardar cómo se parten los subtítulos (caracteres y palabras por línea, líneas, puntuación…),
+  // así al elegirlo los subtítulos salen como cuando se guardó.
+  var LINE_OPT_IDS = ['maxChars', 'maxWords', 'maxLines', 'punctList'], LINE_OPT_CHECKS = ['stripPunct', 'extend'];
+  function collectLineOpts() {
+    var o = {};
+    LINE_OPT_IDS.forEach(function (id) { o[id] = $(id).value; });
+    LINE_OPT_CHECKS.forEach(function (id) { o[id] = $(id).checked; });
+    return o;
+  }
+  function lineOptsDiffer(o) {
+    return LINE_OPT_IDS.some(function (id) { return o[id] !== undefined && String($(id).value) !== String(o[id]); }) ||
+      LINE_OPT_CHECKS.some(function (id) { return o[id] !== undefined && $(id).checked !== !!o[id]; });
+  }
+  function applyLineOpts(o) {
+    LINE_OPT_IDS.forEach(function (id) { if (o[id] !== undefined) { $(id).value = o[id]; store(id, String(o[id])); } });
+    LINE_OPT_CHECKS.forEach(function (id) { if (o[id] !== undefined) { $(id).checked = !!o[id]; store(id, o[id] ? '1' : '0'); } });
+    labels();
+  }
   function applyPreset(p) {
     setControls(p, !state.scopeSel);
-    if (state.scopeSel) assignSelected();
+    if (state.scopeSel) { assignSelected(); return; }       // editando solo algunos subtítulos: no se rearman las líneas
+    if (p.lineOpts && lineOptsDiffer(p.lineOpts)) { applyLineOpts(p.lineOpts); regenLines(); }
   }
   // Galería visual de estilos: cada uno se ve con su fuente, color, contorno y caja. Es el mismo selector de siempre, pero con vista previa.
   function presetChip(label, p, value, mine) {
@@ -362,7 +381,7 @@
     var v = $('presetSel').value, mine = v && v.charAt(0) === 'u';
     $('btnPresetUpdate').disabled = !mine;
     $('btnPresetDel').disabled = !mine;
-    $('presetHint').textContent = !v ? '' : mine ? 'Es uno de tus estilos (★): cambialo y tocá “Actualizar este estilo” para guardar los cambios encima.' : 'Los estilos de fábrica no se modifican: guardá una copia con “Guardar como estilo nuevo”.';
+    $('presetHint').textContent = !v ? '' : mine ? 'Es uno de tus estilos (★)' + (userPresets()[v.slice(2)] && userPresets()[v.slice(2)].lineOpts ? ', guarda también cómo se parten los subtítulos' : '') + ': cambialo y tocá “Actualizar este estilo” para guardar los cambios encima.' : 'Los estilos de fábrica no se modifican: guardá una copia con “Guardar como estilo nuevo”.';
     if (mine) $('presetName').value = v.slice(2);
     markGallery();
   }
@@ -371,26 +390,40 @@
     var v = this.value;
     if (!v) return;
     var p = v.charAt(0) === 'b' ? BUILTIN_PRESETS[v.slice(2)] : userPresets()[v.slice(2)];
+    // si el estilo rearma los subtítulos (otra forma de partirlos, o "una palabra por vez") y hay ediciones a mano, pide un segundo toque
+    var rebuilds = p && !state.scopeSel && state.result && state.result.words &&
+      ((p.lineOpts && lineOptsDiffer(p.lineOpts)) || (p.oneWord !== undefined && p.oneWord !== $('oneWord').checked));
+    var again = state.pendingStyle && state.pendingStyle.v === v && Date.now() - state.pendingStyle.t < 7000;
+    if (rebuilds && hasEdits() && !again) {
+      state.pendingStyle = { v: v, t: Date.now() };
+      this.value = state.curStyle || '';
+      presetButtons();
+      status('⚠ Este estilo también cambia cómo se parten los subtítulos y se perderían las ediciones que hiciste a mano. Tocá el estilo otra vez para aplicarlo.', true);
+      return;
+    }
+    state.pendingStyle = null; state.curStyle = v;
     presetButtons();
     if (p) applyPreset(p);
   });
+  function presetToSave() { var p = collectPreset(); if ($('presetWithLines').checked) p.lineOpts = collectLineOpts(); return p; }
   $('btnPresetUpdate').onclick = function () {
     var v = $('presetSel').value;
     if (!v || v.charAt(0) !== 'u') return status('Elegí uno de tus estilos (los que tienen ★) para actualizarlo.', true);
     var name = v.slice(2), all = userPresets();
     if (!all[name]) return status('No encuentro ese estilo.', true);
-    all[name] = collectPreset();
+    all[name] = presetToSave();
     store('presets', JSON.stringify(all));
-    status('Estilo “' + name + '” actualizado.');
+    status('Estilo “' + name + '” actualizado' + (all[name].lineOpts ? ' (con la forma de partir los subtítulos).' : '.'));
   };
   $('btnPresetSave').onclick = function () {
     var name = $('presetName').value.trim();
     if (!name) return status('Escribí un nombre para guardar el estilo.', true);
     var all = userPresets(), existed = !!all[name];
-    all[name] = collectPreset();
+    all[name] = presetToSave();
     store('presets', JSON.stringify(all));
+    state.curStyle = 'u:' + name;
     fillPresets('u:' + name);
-    status(existed ? 'Ya había un estilo con ese nombre: lo reemplacé.' : 'Estilo “' + name + '” guardado.');
+    status((existed ? 'Ya había un estilo con ese nombre: lo reemplacé. ' : 'Estilo “' + name + '” guardado. ') + (all[name].lineOpts ? 'Incluye cómo se parten los subtítulos (' + all[name].lineOpts.maxChars + ' caracteres por línea…).' : ''));
   };
   $('btnPresetDel').onclick = function () {
     var v = $('presetSel').value;
@@ -474,9 +507,8 @@
   // ¿Hay cambios sin guardar? Se compara una "firma" de las líneas (texto, tiempos, estilo) con la del último momento en que
   // estaban limpias: recién transcriptas, recién agregadas a la secuencia o recién cargadas de ella.
   function linesSig() {
-    var anyGlobal = state.lines.some(function (l) { return !l.sp; });
-    var g = anyGlobal ? (state.scopeSel && state.globalSp ? state.globalSp : collectPreset()) : null;
-    return JSON.stringify({ g: g, l: state.lines.map(function (l) { return [l.text, Math.round(l.start * 1000), Math.round(l.end * 1000), l.sp || null]; }) });
+    // solo lo hecho a mano sobre los subtítulos (texto, tiempos, estilo propio de una línea): cambiar el estilo general no cuenta
+    return JSON.stringify(state.lines.map(function (l) { return [l.text, Math.round(l.start * 1000), Math.round(l.end * 1000), l.sp || null]; }));
   }
   function markClean() { state.baseSig = linesSig(); }
   function hasEdits() { return !!(state.lines.length && state.baseSig !== undefined && linesSig() !== state.baseSig); }

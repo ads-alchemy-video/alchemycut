@@ -84,7 +84,7 @@ Se abre el editor: la **vista previa** queda a la izquierda y, a su lado, la pes
   - Cada slider tiene al lado una **casilla para escribir el valor exacto**.
   - Cada color tiene un **cuentagotas** para tomar un color del fotograma del video o de la pantalla.
   - **Posición del texto:** deslizadores de **Altura** y **Horizontal**, el cuadrito con el punto amarillo (arrastralo) o un clic en la vista previa. Hay atajos Arriba / Centro / Abajo.
-  - **Guardar como estilo nuevo** guarda tu estilo; **Actualizar este estilo** lo modifica (los de fábrica no se pueden pisar).
+  - **Guardar como estilo nuevo** guarda tu estilo; **Actualizar este estilo** lo modifica (los de fábrica no se pueden pisar). Con la casilla **“Guardar también cómo se parten los subtítulos”** (marcada por defecto), el estilo guarda además los caracteres por línea, palabras por línea, líneas por subtítulo, la puntuación a quitar y si cada subtítulo dura hasta el siguiente: al elegir ese estilo, los subtítulos se vuelven a armar así. Si tenías ediciones a mano, el panel avisa y pide tocar el estilo otra vez antes de rearmar. Los estilos de fábrica no cambian estas opciones.
   - “Aplicar los cambios a… solo los que marqué” te deja dar a unos subtítulos un estilo distinto; **Volver al estilo general** los devuelve.
   - **Animación** (solapita al lado de **Estilo**, arriba de la galería): cada tarjeta muestra un **ejemplo animado** con tu estilo. Elegí las que quieras (se combinan): pop, fundido, palabra por palabra, crece, resalta, subraya. “Una palabra por vez” muestra cada palabra sola y centrada.
 - **Agregar:** formato y dónde se pone (siguiente punto).
